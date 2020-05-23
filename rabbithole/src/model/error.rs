@@ -178,7 +178,7 @@ rabbithole_errors! {
     detail: r#"The content of `page[cursor]` is not acceptable, please use a valid cursor"#,
     param: [];
 
-    ty: BaforeAndAfterCursorNotMatch,
+    ty: BeforeAndAfterCursorNotMatch,
     status: http::StatusCode::NOT_ACCEPTABLE,
     code: "RBH-0105",
     title: "Bafore and After Cursor Not Match",

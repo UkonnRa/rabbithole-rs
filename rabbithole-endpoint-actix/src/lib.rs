@@ -1,26 +1,22 @@
 pub mod settings;
 
+use crate::settings::JsonApiSettings;
+use actix_web::dev::HttpResponseBuilder;
 use actix_web::http::{header, HeaderMap, StatusCode};
 use actix_web::web;
 use actix_web::{HttpRequest, HttpResponse};
+use futures::lock::Mutex;
 use rabbithole::entity::{Entity, SingleEntity};
-
-use crate::settings::{ActixSettingsModel, JsonApiSettings};
-use actix_web::dev::HttpResponseBuilder;
-
+use rabbithole::model::document::Document;
 use rabbithole::model::error;
 use rabbithole::model::version::JsonApiVersion;
 use rabbithole::operation::{
     Creating, Deleting, Fetching, IdentifierDataWrapper, OperationResultData, ResourceDataWrapper,
 };
+use rabbithole::query::QuerySettings;
 use rabbithole::rule::RuleDispatcher;
 use rabbithole::JSON_API_HEADER;
-use serde::export::TryFrom;
-
-use futures::lock::Mutex;
-use rabbithole::query::QuerySettings;
-
-use rabbithole::model::document::Document;
+use serde::Deserialize;
 use std::sync::Arc;
 
 fn error_to_response(err: error::Error) -> HttpResponse {
@@ -30,30 +26,20 @@ fn error_to_response(err: error::Error) -> HttpResponse {
     .json(err)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ActixSettings {
+    pub host: String,
     pub path: String,
-    pub uri: url::Url,
+    pub port: u32,
     pub jsonapi: JsonApiSettings,
     pub query: QuerySettings,
-}
-
-impl TryFrom<ActixSettingsModel> for ActixSettings {
-    type Error = url::ParseError;
-
-    fn try_from(value: ActixSettingsModel) -> Result<Self, Self::Error> {
-        let ActixSettingsModel { host, port, path, jsonapi, query } = value;
-        let uri = format!("http://{}:{}", host, port).parse::<url::Url>().unwrap();
-        let uri = uri.join(&path).unwrap();
-        Ok(Self { path, uri, jsonapi, query })
-    }
 }
 
 macro_rules! to_response {
     (Resource: $this:ident, $item:ident) => {{
         let rabbithole::operation::OperationResultData { data, additional_links, additional_meta } =
             $item;
-        let resource = data.to_resource(&$this.uri.to_string(), &Default::default());
+        let resource = data.to_resource(&$this.uri().to_string(), &Default::default());
         match resource {
             Some(mut resource) => {
                 resource.extend_meta(additional_meta);
@@ -68,7 +54,7 @@ macro_rules! to_response {
         let rabbithole::operation::OperationResultData { data, additional_links, additional_meta } =
             $item;
         let (field_name, item) = data;
-        let resource = item.to_resource(&$this.uri.to_string(), &Default::default());
+        let resource = item.to_resource(&$this.uri().to_string(), &Default::default());
         match resource {
             Some(mut resource) => {
                 resource.extend_meta(additional_meta);
@@ -96,7 +82,7 @@ macro_rules! single_step_operation {
             if let Err(err_resp) = check_header(&this.jsonapi.version, &req.headers()) {
                 return Ok(err_resp);
             }
-            let uri = &this.uri.to_string();
+            let uri = &this.uri().to_string();
             let path = req.uri().clone().into();
 
             match service.lock().await.$fn_name($(&$param.into_inner()),+, uri, &path).await {
@@ -117,9 +103,12 @@ impl ActixSettings {
     single_step_operation!(Relationship: add_relationship, Updating, params => web::Path<(String, String)>, body => web::Json<IdentifierDataWrapper>);
 
     single_step_operation!(Relationship: remove_relationship, Updating, params => web::Path<(String, String)>, body => web::Json<IdentifierDataWrapper>);
-}
 
-impl ActixSettings {
+    fn uri(&self) -> url::Url {
+        let uri = format!("http://{}:{}", self.host, self.port).parse::<url::Url>().unwrap();
+        uri.join(&self.path).unwrap()
+    }
+
     pub async fn delete_resource<T>(
         this: web::Data<Self>, service: web::Data<Arc<Mutex<T>>>, params: web::Path<String>,
         req: actix_web::HttpRequest,
@@ -132,7 +121,7 @@ impl ActixSettings {
             return Ok(err_resp);
         }
 
-        let uri = &this.uri.to_string();
+        let uri = &this.uri().to_string();
         let path = req.uri().clone().into();
 
         match service.lock().await.delete_resource(&params.into_inner(), uri, &path).await {
@@ -147,9 +136,7 @@ impl ActixSettings {
             Err(err) => Ok(error_to_response(err)),
         }
     }
-}
 
-impl ActixSettings {
     pub async fn create<T>(
         this: web::Data<Self>, service: web::Data<Arc<Mutex<T>>>, req: actix_web::HttpRequest,
         body: web::Json<ResourceDataWrapper>,
@@ -162,7 +149,7 @@ impl ActixSettings {
             return Ok(err_resp);
         }
 
-        let uri = &this.uri.to_string();
+        let uri = &this.uri().to_string();
         let path = req.uri().clone().into();
 
         match service.lock().await.create(&body.into_inner(), uri, &path).await {
@@ -175,9 +162,7 @@ impl ActixSettings {
             Err(err) => Ok(error_to_response(err)),
         }
     }
-}
 
-impl ActixSettings {
     pub async fn fetch_collection<T>(
         this: web::Data<Self>, service: web::Data<Arc<Mutex<T>>>, req: HttpRequest,
     ) -> Result<HttpResponse, actix_web::Error>
@@ -189,8 +174,8 @@ impl ActixSettings {
             return Ok(err_resp);
         }
 
-        let uri = &this.uri.to_string();
-        let path = req.uri().clone().into();
+        let uri = &this.uri().to_string();
+        let path: rabbithole::model::link::RawUri = req.uri().clone().into();
 
         match this.query.decode_path(&path) {
             Ok(query) => match service.lock().await.fetch_collection(uri, &path, &query).await {
@@ -218,7 +203,7 @@ impl ActixSettings {
             return Ok(err_resp);
         }
 
-        let uri = &this.uri.to_string();
+        let uri = &this.uri().to_string();
         let path = req.uri().clone().into();
 
         match this.query.decode_path(&path) {
@@ -232,7 +217,7 @@ impl ActixSettings {
                     Ok(OperationResultData { data, additional_links, additional_meta }) => {
                         match SingleEntity::to_document(
                             &data,
-                            &this.uri.to_string(),
+                            &this.uri().to_string(),
                             &query,
                             req.uri().into(),
                             additional_links,
@@ -261,7 +246,7 @@ impl ActixSettings {
             return Ok(err_resp);
         }
 
-        let uri = &this.uri.to_string();
+        let uri = &this.uri().to_string();
         let path = req.uri().clone().into();
 
         match this.query.decode_path(&path) {
@@ -297,7 +282,7 @@ impl ActixSettings {
             return Ok(err_resp);
         }
 
-        let uri = &this.uri.to_string();
+        let uri = &this.uri().to_string();
         let path = req.uri().clone().into();
 
         match this.query.decode_path(&path) {

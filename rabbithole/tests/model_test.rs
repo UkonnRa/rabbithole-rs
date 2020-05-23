@@ -17,11 +17,14 @@ fn error_from_json_string() {
     let serialized = r#"
         {"id":"1", "links" : {}, "status" : "unknown", "code" : "code1", "title" : "error-title", "detail": "error-detail"}
         "#;
-    let error: Result<Error, serde_json::Error> = serde_json::from_str(serialized);
-    if let Err(err) = error {
+
+    let result: Result<Error, serde_json::Error> = serde_json::from_str(serialized);
+
+    if let Err(err) = result {
         unreachable!("err: {:?}", err);
     }
-    match error {
+
+    match result {
         Ok(jsonapierror) => match jsonapierror.id {
             Some(id) => assert_eq!(id, "1"),
             None => unreachable!(),
@@ -50,7 +53,7 @@ fn multiple_resource_from_json_string() {
             { "id" :"2", "type" : "post", "attributes" : {}, "relationships" : {}, "links" : {} },
             { "id" :"3", "type" : "post", "attributes" : {}, "relationships" : {}, "links" : {} }
         ]"#;
-    let data: Result<Resources, serde_json::Error> = serde_json::from_str(serialized);
+    let data: Result<Vec<Resource>, serde_json::Error> = serde_json::from_str(serialized);
     if let Err(err) = data {
         unreachable!("err: {:?}", err);
     }

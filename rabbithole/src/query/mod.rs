@@ -4,7 +4,7 @@ pub mod sort;
 
 use crate::model::error;
 
-use crate::RbhResult;
+use crate::Result;
 
 use crate::query::filter::FilterQuery;
 use crate::query::page::PageQuery;
@@ -89,7 +89,7 @@ pub struct Query {
 impl Query {
     pub fn query<E: SingleEntity>(
         &self, mut data: Vec<E>, uri: &str, path: &RawUri,
-    ) -> RbhResult<(Vec<E>, Links)> {
+    ) -> Result<(Vec<E>, Links)> {
         self.sort.sort(&mut data);
         let data = self.filter.filter(data)?;
         let (data, relat_pages) = if let Some(page) = &self.page {
@@ -97,7 +97,7 @@ impl Query {
         } else {
             (data.as_slice(), Default::default())
         };
-        let relat_pages: RbhResult<Links> = relat_pages
+        let relat_pages: Result<Links> = relat_pages
             .into_iter()
             .map(|(k, v)| {
                 let relat_query = Query { page: Some(v), ..self.clone() };
@@ -153,7 +153,7 @@ lazy_static! {
 }
 
 impl QuerySettings {
-    pub fn encode_path(&self, path: &RawUri, query: &Query) -> RbhResult<RawUri> {
+    pub fn encode_path(&self, path: &RawUri, query: &Query) -> Result<RawUri> {
         let RawUri(path) = path;
         let query_str = query.to_string();
         let query_str = if self.raw_encode {
@@ -162,12 +162,12 @@ impl QuerySettings {
             percent_encode(query_str.as_bytes(), &CHAR_SET).to_string()
         };
         let path_and_query = format!("{}?{}", path.path(), query_str);
-        let mut builder = http::Uri::builder();
+        let builder = http::Uri::builder();
         let builder = builder.path_and_query(path_and_query.as_bytes());
         builder.build().map(RawUri).map_err(|err| error::Error::InvalidUri(&err, None))
     }
 
-    pub fn decode_path(&self, path: &RawUri) -> RbhResult<Query> {
+    pub fn decode_path(&self, path: &RawUri) -> Result<Query> {
         let RawUri(path) = path;
         let mut include_query: IncludeQuery = Default::default();
         let mut include_query_exist = false;

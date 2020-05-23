@@ -1,13 +1,11 @@
 use crate::model::link::Links;
 use crate::model::relationship::Relationships;
 use crate::model::{error, Meta};
-
+use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
-
-use crate::RbhResult;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::FromIterator;
@@ -25,14 +23,14 @@ lazy_static! {
 pub struct AttributeField(pub serde_json::Value);
 
 impl AttributeField {
-    pub fn cmp_with_str(&self, value: &str, field: &str) -> RbhResult<Ordering> {
+    pub fn cmp_with_str(&self, value: &str, field: &str) -> Result<Ordering> {
         let value: AttributeField = value.parse()?;
         self.partial_cmp(&value).ok_or_else(|| {
             error::Error::FieldNotMatch(field, &self.to_string(), &value.to_string(), None)
         })
     }
 
-    pub fn eq_with_str(&self, value: &str, field: &str) -> RbhResult<bool> {
+    pub fn eq_with_str(&self, value: &str, field: &str) -> Result<bool> {
         if value.contains('*') && self.0.is_string() {
             let value = value.replace('*', "\\w*");
             let regex: regex::Regex = value.parse::<regex::Regex>().unwrap();
@@ -46,7 +44,7 @@ impl AttributeField {
 impl FromStr for AttributeField {
     type Err = error::Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         let value: serde_json::Value =
             serde_json::from_str(s).map_err(|err| error::Error::InvalidJson(&err, None))?;
         Ok(value.into())
@@ -100,11 +98,11 @@ impl<K: ToString> From<HashMap<K, serde_json::Value>> for Attributes {
 }
 
 impl Attributes {
-    pub fn get_field(&self, field_name: &str) -> Result<&AttributeField, error::Error> {
+    pub fn get_field(&self, field_name: &str) -> Result<&AttributeField> {
         self.0.get(field_name).ok_or_else(|| error::Error::FieldNotExist(field_name, None))
     }
 
-    pub fn cmp(&self, field: &str, other: &Self) -> Result<Ordering, error::Error> {
+    pub fn cmp(&self, field: &str, other: &Self) -> Result<Ordering> {
         let self_field = self.get_field(field)?;
         let other_field = other.get_field(field)?;
         if let Some(ord) = self_field.partial_cmp(&other_field) {
@@ -119,7 +117,7 @@ impl Attributes {
         }
     }
 
-    pub fn get_json_value_map(&self) -> Result<HashMap<String, serde_json::Value>, error::Error> {
+    pub fn get_json_value_map(&self) -> Result<HashMap<String, serde_json::Value>> {
         self.0
             .iter()
             .map(|(k, v)| match serde_json::to_value(v) {

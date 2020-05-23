@@ -6,13 +6,13 @@ use crate::model::link::{Links, RawUri};
 use crate::model::resource::{IdentifierData, Resource};
 use crate::model::{error, Meta};
 use crate::query::Query;
-use crate::RbhResult;
+use crate::Result;
 use async_trait::async_trait;
 
-pub type OperationResult<T> = RbhResult<OperationResultData<T>>;
-pub type CollectionResult<T> = RbhResult<OperationResultData<Vec<T>>>;
-pub type SingleResult<T> = RbhResult<OperationResultData<Option<T>>>;
-pub type UpdateResult<T> = RbhResult<OperationResultData<(String, Option<T>)>>;
+pub type OperationResult<T> = Result<OperationResultData<T>>;
+pub type CollectionResult<T> = Result<OperationResultData<Vec<T>>>;
+pub type SingleResult<T> = Result<OperationResultData<Option<T>>>;
+pub type UpdateResult<T> = Result<OperationResultData<(String, Option<T>)>>;
 
 pub trait Operation {
     type Item: SingleEntity + Send + Sync;
@@ -34,7 +34,7 @@ pub trait Fetching: Operation {
     //    ///     - put `totalPages` if `@type == PageBased`
     //    async fn vec_to_document(
     //        items: &[Self::Item], uri: &str, query: &Query, request_path: &RawUri,
-    //    ) -> RbhResult<Document> {
+    //    ) -> Result<Document> {
     //        Ok(items.to_document(uri, query, request_path)?)
     //    }
     /// Mapping to `/<ty>?<query>`
@@ -65,7 +65,7 @@ pub trait Fetching: Operation {
     #[allow(unused_variables)]
     async fn fetch_related(
         &self, id: &str, related_field: &str, uri: &str, path: &RawUri, query: &Query,
-    ) -> RbhResult<Document> {
+    ) -> Result<Document> {
         Err(error::Error::OperationNotImplemented("fetch_related", None))
     }
 }

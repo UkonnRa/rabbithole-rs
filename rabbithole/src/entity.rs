@@ -2,16 +2,38 @@ use crate::model::document::{Document, Included};
 use crate::model::link::{Link, Links, RawUri};
 use crate::model::relationship::{RelationshipLinks, Relationships};
 use crate::model::resource::{Attributes, Resource, ResourceIdentifier};
-use serde::Serialize;
-
-use crate::model::{error, Meta};
+use crate::model::Meta;
 use crate::query::*;
+use crate::Result;
+use serde::Serialize;
 use std::cmp::Ordering;
-
-use crate::RbhResult;
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::ops::Deref;
+pub trait Entity: Serialize + Clone {
+    /// Returns the `included` field of this entity
+    ///
+    /// `include_query`: If exists, only the `included` item whose `ty` is in the `include_query`
+    ///                  will be retained
+    ///                  If exists but empty, means all `included` fields will be ignored
+    ///                  If not exists, all the `included` fields will be retained   
+    ///
+    /// `fields_query`: For any resources whose `ty` is in the `fields_query`, their `relationship`
+    ///                 and `attributes` will be filtered. Only the field name inside the `field_query`
+    ///                 item will be retained
+    #[doc(hidden)]
+    fn included(
+        &self, uri: &str, include_query: &Option<IncludeQuery>, fields_query: &FieldsQuery,
+    ) -> Result<Included>;
+
+    /// Returns a `Document` based on `query`. This function will do all of the actions databases should do in memory,
+    /// using a trivial iter way. But I still recommend you guys implement `to_document` or `to_document_async` yourself
+    /// for better performance
+    fn to_document(
+        &self, uri: &str, query: &Query, request_path: RawUri, additional_links: Links,
+        additional_meta: Meta,
+    ) -> Result<Document>;
+}
 
 pub trait SingleEntity: Entity {
     #[doc(hidden)]
@@ -39,7 +61,7 @@ pub trait SingleEntity: Entity {
     fn to_document(
         &self, uri: &str, query: &Query, request_path: RawUri, mut additional_links: Links,
         additional_meta: Meta,
-    ) -> RbhResult<Document> {
+    ) -> Result<Document> {
         let (key, value) = Link::slf(uri, request_path);
         additional_links.insert(key, value);
         let mut doc = Document::single_resource(
@@ -95,34 +117,9 @@ pub trait SingleEntity: Entity {
         HashMap::from_iter(vec![("self".into(), slf), ("related".into(), related)]).into()
     }
 
-    fn cmp_field(&self, field: &str, other: &Self) -> Result<Ordering, error::Error> {
+    fn cmp_field(&self, field: &str, other: &Self) -> Result<Ordering> {
         self.attributes().cmp(field, &other.attributes())
     }
-}
-
-pub trait Entity: Serialize + Clone {
-    /// Returns the `included` field of this entity
-    ///
-    /// `include_query`: If exists, only the `included` item whose `ty` is in the `include_query`
-    ///                  will be retained
-    ///                  If exists but empty, means all `included` fields will be ignored
-    ///                  If not exists, all the `included` fields will be retained   
-    ///
-    /// `fields_query`: For any resources whose `ty` is in the `fields_query`, their `relationship`
-    ///                 and `attributes` will be filtered. Only the field name inside the `field_query`
-    ///                 item will be retained
-    #[doc(hidden)]
-    fn included(
-        &self, uri: &str, include_query: &Option<IncludeQuery>, fields_query: &FieldsQuery,
-    ) -> RbhResult<Included>;
-
-    /// Returns a `Document` based on `query`. This function will do all of the actions databases should do in memory,
-    /// using a trivial iter way. But I still recommend you guys implement `to_document` or `to_document_async` yourself
-    /// for better performance
-    fn to_document(
-        &self, uri: &str, query: &Query, request_path: RawUri, additional_links: Links,
-        additional_meta: Meta,
-    ) -> RbhResult<Document>;
 }
 
 impl<T: SingleEntity> SingleEntity for Option<T> {
@@ -139,7 +136,7 @@ impl<T: SingleEntity> SingleEntity for Option<T> {
     fn to_document(
         &self, uri: &str, query: &Query, request_path: RawUri, additional_links: Links,
         additional_meta: Meta,
-    ) -> RbhResult<Document> {
+    ) -> Result<Document> {
         if let Some(item) = self {
             SingleEntity::to_document(
                 item,
@@ -166,7 +163,7 @@ impl<T: SingleEntity> SingleEntity for Option<T> {
 impl<T: Entity> Entity for Option<T> {
     fn included(
         &self, uri: &str, include_query: &Option<IncludeQuery>, fields_query: &FieldsQuery,
-    ) -> RbhResult<Included> {
+    ) -> Result<Included> {
         if let Some(s) = self {
             s.included(uri, include_query, fields_query)
         } else {
@@ -177,7 +174,7 @@ impl<T: Entity> Entity for Option<T> {
     fn to_document(
         &self, uri: &str, query: &Query, request_path: RawUri, additional_links: Links,
         additional_meta: Meta,
-    ) -> RbhResult<Document> {
+    ) -> Result<Document> {
         self.as_ref()
             .map(|op| op.to_document(uri, query, request_path, additional_links, additional_meta))
             .unwrap()
@@ -197,14 +194,14 @@ impl<T: SingleEntity> SingleEntity for Box<T> {
 impl<T: Entity> Entity for Box<T> {
     fn included(
         &self, uri: &str, include_query: &Option<IncludeQuery>, fields_query: &FieldsQuery,
-    ) -> RbhResult<Included> {
+    ) -> Result<Included> {
         self.as_ref().included(uri, include_query, fields_query)
     }
 
     fn to_document(
         &self, uri: &str, query: &Query, request_path: RawUri, additional_links: Links,
         additional_meta: Meta,
-    ) -> RbhResult<Document> {
+    ) -> Result<Document> {
         self.as_ref().to_document(uri, query, request_path, additional_links, additional_meta)
     }
 }
@@ -228,14 +225,14 @@ where
 {
     fn included(
         &self, uri: &str, include_query: &Option<IncludeQuery>, fields_query: &FieldsQuery,
-    ) -> RbhResult<Included> {
+    ) -> Result<Included> {
         self.deref().included(uri, include_query, fields_query)
     }
 
     fn to_document(
         &self, uri: &str, query: &Query, request_path: RawUri, additional_links: Links,
         additional_meta: Meta,
-    ) -> RbhResult<Document> {
+    ) -> Result<Document> {
         self.deref().to_document(uri, query, request_path, additional_links, additional_meta)
     }
 }
@@ -243,18 +240,18 @@ where
 impl<T: SingleEntity> Entity for &[T] {
     fn included(
         &self, uri: &str, include_query: &Option<IncludeQuery>, fields_query: &FieldsQuery,
-    ) -> RbhResult<Included> {
+    ) -> Result<Included> {
         let includes: Vec<Included> = self
             .iter()
             .map(|e| e.included(uri, include_query, fields_query))
-            .collect::<RbhResult<Vec<Included>>>()?;
+            .collect::<Result<Vec<Included>>>()?;
         Ok(includes.into_iter().flat_map(|s| s.into_iter()).collect())
     }
 
     fn to_document(
         &self, uri: &str, query: &Query, request_path: RawUri, mut additional_links: Links,
         additional_meta: Meta,
-    ) -> RbhResult<Document> {
+    ) -> Result<Document> {
         let entities = self.to_vec();
         let (key, value) = Link::slf(uri, request_path);
         let resources = entities.iter().filter_map(|e| e.to_resource(uri, &query.fields)).collect();
@@ -273,14 +270,14 @@ impl<T: SingleEntity> Entity for &[T] {
 impl<T: SingleEntity> Entity for Vec<T> {
     fn included(
         &self, uri: &str, include_query: &Option<IncludeQuery>, fields_query: &FieldsQuery,
-    ) -> RbhResult<Included> {
+    ) -> Result<Included> {
         self.as_slice().included(uri, include_query, fields_query)
     }
 
     fn to_document(
         &self, uri: &str, query: &Query, request_path: RawUri, additional_links: Links,
         additional_meta: Meta,
-    ) -> RbhResult<Document> {
+    ) -> Result<Document> {
         self.as_slice().to_document(uri, query, request_path, additional_links, additional_meta)
     }
 }

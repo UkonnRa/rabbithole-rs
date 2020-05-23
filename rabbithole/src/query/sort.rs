@@ -1,6 +1,6 @@
 use crate::entity::SingleEntity;
 use crate::model::error;
-use crate::RbhResult;
+use crate::Result;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 
@@ -16,7 +16,7 @@ pub enum OrderType {
 impl TryFrom<Vec<(String, OrderType)>> for SortQuery {
     type Error = error::Error;
 
-    fn try_from(map: Vec<(String, OrderType)>) -> Result<Self, Self::Error> {
+    fn try_from(map: Vec<(String, OrderType)>) -> Result<Self> {
         for (k, _) in &map {
             if k.contains('.') {
                 return Err(error::Error::RelationshipPathNotSupported(&k, None));
@@ -29,7 +29,7 @@ impl TryFrom<Vec<(String, OrderType)>> for SortQuery {
 impl SortQuery {
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
 
-    pub fn insert_raw(&mut self, value: &str) -> RbhResult<()> {
+    pub fn insert_raw(&mut self, value: &str) -> Result<()> {
         for v in value.split(',').filter(|s| !s.is_empty()).map(ToString::to_string) {
             if v.starts_with('-') {
                 self.insert((v.as_str()[1 ..]).into(), OrderType::Desc)?;
@@ -40,7 +40,7 @@ impl SortQuery {
         Ok(())
     }
 
-    pub fn insert(&mut self, key: String, value: OrderType) -> RbhResult<()> {
+    pub fn insert(&mut self, key: String, value: OrderType) -> Result<()> {
         if key.contains('.') {
             return Err(error::Error::RelationshipPathNotSupported(&key, None));
         }

@@ -1,6 +1,6 @@
 use crate::model::error;
 
-use crate::RbhResult;
+use crate::Result;
 
 use rsql::Expr;
 
@@ -17,9 +17,9 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 pub trait FilterData: Sized + ToString {
-    fn new(params: &HashMap<String, String>) -> RbhResult<Self>;
+    fn new(params: &HashMap<String, String>) -> Result<Self>;
 
-    fn filter<E: SingleEntity>(&self, entities: Vec<E>) -> RbhResult<Vec<E>>;
+    fn filter<E: SingleEntity>(&self, entities: Vec<E>) -> Result<Vec<E>>;
 }
 
 /// Example:
@@ -35,7 +35,7 @@ impl ToString for RsqlFilterData {
 }
 
 impl FilterData for RsqlFilterData {
-    fn new(params: &HashMap<String, String>) -> RbhResult<Self> {
+    fn new(params: &HashMap<String, String>) -> Result<Self> {
         let mut res: HashMap<String, Expr> = Default::default();
         for (k, v) in params.iter() {
             if k.contains('.') {
@@ -49,7 +49,7 @@ impl FilterData for RsqlFilterData {
         Ok(RsqlFilterData(res))
     }
 
-    fn filter<E: SingleEntity>(&self, mut entities: Vec<E>) -> RbhResult<Vec<E>> {
+    fn filter<E: SingleEntity>(&self, mut entities: Vec<E>) -> Result<Vec<E>> {
         for (ty_or_relat, expr) in &self.0 {
             entities = entities
                 .into_iter()
@@ -63,14 +63,14 @@ impl FilterData for RsqlFilterData {
                         },
                     }
                 })
-                .collect::<RbhResult<Vec<E>>>()?;
+                .collect::<Result<Vec<E>>>()?;
         }
         Ok(entities)
     }
 }
 
 impl RsqlFilterData {
-    pub fn filter_on_attributes<E: SingleEntity>(expr: &Expr, entity: &E) -> RbhResult<bool> {
+    pub fn filter_on_attributes<E: SingleEntity>(expr: &Expr, entity: &E) -> Result<bool> {
         let ent: bool = match &expr {
             Expr::Item(Constraint { selector, comparison, arguments }) => {
                 if let Ok(field) = entity.attributes().get_field(&selector) {
@@ -148,9 +148,7 @@ impl Default for FilterQuery {
 }
 
 impl FilterQuery {
-    pub fn new(
-        settings: &FilterSettings, params: &HashMap<String, String>,
-    ) -> RbhResult<FilterQuery> {
+    pub fn new(settings: &FilterSettings, params: &HashMap<String, String>) -> Result<FilterQuery> {
         if &settings.ty == "Rsql" {
             RsqlFilterData::new(params).map(FilterQuery::Rsql)
         } else {
@@ -158,7 +156,7 @@ impl FilterQuery {
         }
     }
 
-    pub fn filter<E: SingleEntity>(&self, entities: Vec<E>) -> RbhResult<Vec<E>> {
+    pub fn filter<E: SingleEntity>(&self, entities: Vec<E>) -> Result<Vec<E>> {
         match &self {
             FilterQuery::Rsql(map) => RsqlFilterData::filter(map, entities),
         }
